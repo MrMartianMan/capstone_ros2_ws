@@ -25,6 +25,7 @@ setup(
         'console_scripts': [
             'yolo_detector_node = sprayer_vision.yolo_detector_node:main',
             'sprayer_gpio_node = sprayer_vision.sprayer_gpio_node:main',
+	    'random_detection_gpio_node = sprayer_vision.random_detection_gpio_node:main',
         ],
     },
 )
