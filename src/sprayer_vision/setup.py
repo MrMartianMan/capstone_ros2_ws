@@ -23,9 +23,11 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'yolo_detector_node = sprayer_vision.yolo_detector_node:main',
-            'sprayer_gpio_node = sprayer_vision.sprayer_gpio_node:main',
-	    'random_detection_gpio_node = sprayer_vision.random_detection_gpio_node:main',
+        'yolo_detector_node = sprayer_vision.yolo_detector_node:main',
+        'cercospora_classifier_node = sprayer_vision.cercospora_classifier_node:main',
+        'sprayer_gpio_node = sprayer_vision.sprayer_gpio_node:main',
+        'random_detection_publisher_node = sprayer_vision.random_detection_publisher_node:main',
+	'ground_crop_node = sprayer_vision.ground_crop_node:main',
         ],
     },
 )

@@ -3,69 +3,88 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    """
-    Main launch file for the sprayer vision system.
+    VISION_MODE = 'pretrained'   # 'random', 'pretrained', or 'cercospora'
+    USE_CROP = True              # True or False
+    ROW_LAYOUT = 'single_row'    # 'single_row' or 'double_row'
 
-    This launch file supports two operating modes:
+    nodes = []
 
-    1. USE_YOLO = True
-       - Runs the real camera
-       - Runs the YOLO detector node
-       - Runs the GPIO sprayer control node
+    if VISION_MODE in ['pretrained', 'cercospora']:
+        nodes.append(
+            Node(
+                package='v4l2_camera',
+                executable='v4l2_camera_node',
+                name='v4l2_camera',
+                output='screen',
+                parameters=[{
+                    'video_device': '/dev/video0',
+                    'pixel_format': 'YUYV',
+                    'output_encoding': 'bgr8',
+                    'image_size': [3840, 2160],
+                }]
+            )
+        )
 
-    2. USE_YOLO = False
-       - Runs the real camera
-       - Skips YOLO and GPIO detection control
-       - Runs the random detection GPIO simulator instead
+        if USE_CROP:
+            nodes.append(
+                Node(
+                    package='sprayer_vision',
+                    executable='ground_crop_node',
+                    name='ground_crop_node',
+                    output='screen',
+                    parameters=[{
+                        'image_topic': '/image_raw',
+                        'cropped_image_topic': '/image_crop_between_legs',
+                        'mount_height_in': 72.0,
+                        'desired_ground_width_in': 80.0,
+                        'hfov_deg': 88.0,
+                        'crop_center_x_offset_px': 0,
+                        'crop_margin_px': 0,
+                        'full_height': True,
+                        'resize_width_px': 0,
+                        'resize_height_px': 0,
+                        'log_crop_once': True,
+                    }]
+                )
+            )
 
-    This makes it easy to switch between:
-    - real object detection testing
-    - fallback demonstration mode when YOLO is unavailable
-    """
+    vision_image_topic = '/image_crop_between_legs' if USE_CROP else '/image_raw'
 
-    # Set this flag to choose between the real detection pipeline and the
-    # random detection simulator.
-    #
-    # True  -> use the real YOLO + GPIO sprayer pipeline
-    # False -> use the random detection generator instead
-    USE_YOLO = False
-
-    # Start with the shared base node list.
-    # The camera node is always launched because both real mode and simulation
-    # mode may still benefit from having the camera available.
-    nodes = [
+    nodes.append(
         Node(
-            package='v4l2_camera',
-            executable='v4l2_camera_node',
-            name='v4l2_camera',
+            package='sprayer_vision',
+            executable='sprayer_gpio_node',
+            name='sprayer_gpio_node',
             output='screen',
             parameters=[{
-                # Linux camera device path
-                'video_device': '/dev/video0',
-
-                # Input format requested from the camera
-                'pixel_format': 'YUYV',
-
-                # Output format published on the ROS image topic
-                'output_encoding': 'bgr8',
-
-                # Camera resolution
-                'image_size': [3840, 2160],
+                'disease_gpio_pin': 13,
+                'weed_gpio_pin': 32,
+                'hold_time_sec': 2.0,
+                'active_high': True,
+                'signal_delay_sec': 0.0,
+                'row_layout': ROW_LAYOUT,
             }]
         )
-    ]
+    )
 
-    if USE_YOLO:
-        # ------------------------------------------------------------
-        # Real detection mode
-        # ------------------------------------------------------------
-        # This mode runs the full pipeline:
-        #
-        # camera -> YOLO detector -> detection topics -> GPIO sprayer node
-        #
-        # The YOLO node detects targets and publishes stable detections.
-        # The GPIO node waits for those detections, applies the actuation delay,
-        # and then drives the sprayer relay outputs.
+    if VISION_MODE == 'random':
+        nodes.append(
+            Node(
+                package='sprayer_vision',
+                executable='random_detection_publisher_node',
+                name='random_detection_publisher_node',
+                output='screen',
+                parameters=[{
+                    'disease_min_interval_sec': 0.1,
+                    'disease_max_interval_sec': 10.0,
+                    'weed_min_interval_sec': 0.1,
+                    'weed_max_interval_sec': 10.0,
+                    'detection_pulse_sec': 0.10,
+                }]
+            )
+        )
+
+    elif VISION_MODE == 'pretrained':
         nodes.append(
             Node(
                 package='sprayer_vision',
@@ -73,107 +92,46 @@ def generate_launch_description():
                 name='yolo_detector_node',
                 output='screen',
                 parameters=[{
-                    # Path to the TensorRT engine or YOLO model file
                     'model_path': '/home/project-48/models/yolo/yolo11s_640.engine',
-
-                    # Input image topic from the camera node
-                    'image_topic': '/image_raw',
-
-                    # Topic where the annotated debug image is published
+                    'image_topic': vision_image_topic,
                     'annotated_image_topic': '/detections/image',
-
-                    # Minimum confidence required for a detection to count
                     'conf_threshold': 0.50,
-
-                    # Number of consecutive frames required before a detection
-                    # is treated as stable
                     'required_consecutive_frames': 3,
-
-                    # Process every frame (set higher to skip frames if needed)
                     'process_every_n_frames': 1,
-
-                    # GPU device selection for inference
-                    'device': "0",
-
-                    # YOLO inference image size
+                    'device': '0',
                     'imgsz': 640,
-
-                    # Whether to publish annotated detection images
-                    'publish_annotated_image': True
+                    'publish_annotated_image': True,
+                    'disease_class_name': 'scissors',
+                    'weed_class_name': 'remote',
                 }]
             )
         )
 
+    elif VISION_MODE == 'cercospora':
         nodes.append(
             Node(
                 package='sprayer_vision',
-                executable='sprayer_gpio_node',
-                name='sprayer_gpio_node',
+                executable='cercospora_classifier_node',
+                name='cercospora_classifier_node',
                 output='screen',
                 parameters=[{
-                    # GPIO pin for cell phone detections
-                    'cell_phone_gpio_pin': 13,
-
-                    # GPIO pin for mouse detections
-                    'mouse_gpio_pin': 32,
-
-                    # How long the sprayer stays ON after actuation begins
-                    'hold_time_sec': 2.0,
-
-                    # Relay polarity:
-                    # True  -> HIGH turns relay ON
-                    # False -> LOW turns relay ON
-                    'active_high': True,
-
-                    # Delay between the detection event and spray actuation.
-                    # This compensates for the physical distance between the
-                    # camera and the sprayer nozzles.
-                    'signal_delay_sec': 4.0,
+                    'model_path': '/home/project-48/models/yolo/cercospora_best.engine',
+                    'image_topic': vision_image_topic,
+                    'annotated_image_topic': '/cercospora/image',
+                    'conf_threshold': 0.50,
+                    'required_consecutive_frames': 3,
+                    'process_every_n_frames': 1,
+                    'device': '0',
+                    'imgsz': 224,
+                    'publish_annotated_image': True,
+                    'positive_class_name': 'Cercospora Present'
                 }]
             )
         )
 
     else:
-        # ------------------------------------------------------------
-        # Simulation mode
-        # ------------------------------------------------------------
-        # This mode does not use YOLO.
-        #
-        # Instead, it launches a node that randomly generates simulated
-        # disease and weed detections and directly drives the GPIO outputs.
-        #
-        # This is useful when:
-        # - YOLO is not working
-        # - the model is unavailable
-        # - you want to demonstrate spray logic without real detections
-        nodes.append(
-            Node(
-                package='sprayer_vision',
-                executable='random_detection_gpio_node',
-                name='random_detection_gpio_node',
-                output='screen',
-                parameters=[{
-                    # GPIO pin used for disease spray simulation
-                    'disease_gpio_pin': 13,
-
-                    # GPIO pin used for weed spray simulation
-                    'weed_gpio_pin': 32,
-
-                    # Relay polarity
-                    'active_high': True,
-
-                    # How long the output remains ON after activation
-                    'hold_time_sec': 2.0,
-
-                    # Minimum / maximum random spacing between simulated disease detections
-                    'disease_min_interval_sec': 0.1,
-                    'disease_max_interval_sec': 10.0,
-
-                    # Minimum / maximum random spacing between simulated weed detections
-                    'weed_min_interval_sec': 0.1,
-                    'weed_max_interval_sec': 10.0,
-                }]
-            )
+        raise RuntimeError(
+            f"Unknown VISION_MODE='{VISION_MODE}'. Use random, pretrained, or cercospora."
         )
 
     return LaunchDescription(nodes)
