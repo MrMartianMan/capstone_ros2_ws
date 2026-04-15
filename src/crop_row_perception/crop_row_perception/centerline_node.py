@@ -11,7 +11,7 @@ from sensor_msgs.msg import PointCloud2
 from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseStamped, Point
 from visualization_msgs.msg import Marker
-from std_msgs.msg import ColorRGBA
+from std_msgs.msg import ColorRGBA, Bool
 from sensor_msgs_py import point_cloud2
 
 
@@ -22,7 +22,7 @@ class CenterlineNode(Node):
         self.cloud_topic = '/zed/zed_node/point_cloud/cloud_registered'
         self.target_frame = 'zed_left_camera_frame'
 
-        # Tighter forward-looking ROI to reduce jitter
+        # ROI
         self.x_min_roi = 0.25
         self.x_max_roi = 1.60
         self.y_min_roi = -0.60
@@ -39,12 +39,11 @@ class CenterlineNode(Node):
         self.row_marker_size = 0.04
         self.centerline_width = 0.05
         self.path_z_offset = 0.02
-
         self.marker_z = 0.0
 
         # Temporal smoothing
         self.prev_center_pts: List[Tuple[float, float]] = []
-        self.temporal_alpha = 0.35  # lower = smoother
+        self.temporal_alpha = 0.35
 
         self.sub = self.create_subscription(
             PointCloud2,
@@ -56,6 +55,7 @@ class CenterlineNode(Node):
         self.path_pub = self.create_publisher(Path, '/centerline_path', 10)
         self.center_pub = self.create_publisher(Marker, '/centerline_marker', 10)
         self.rows_pub = self.create_publisher(Marker, '/row_points_marker', 10)
+        self.valid_pub = self.create_publisher(Bool, '/centerline_valid', 10)
 
         self.get_logger().info('### STABLE FORWARD CENTERLINE NODE ###')
         self.get_logger().info(f'cloud_topic={self.cloud_topic}')
@@ -95,9 +95,47 @@ class CenterlineNode(Node):
         self.prev_center_pts = smoothed.copy()
         return smoothed
 
+    def publish_valid(self, is_valid: bool) -> None:
+        msg = Bool()
+        msg.data = is_valid
+        self.valid_pub.publish(msg)
+
+    def publish_empty_path(self) -> None:
+        path = Path()
+        path.header.frame_id = self.target_frame
+        path.header.stamp = self.get_clock().now().to_msg()
+        self.path_pub.publish(path)
+
+    def clear_markers(self) -> None:
+        now = self.get_clock().now().to_msg()
+
+        rows_marker = Marker()
+        rows_marker.header.frame_id = self.target_frame
+        rows_marker.header.stamp = now
+        rows_marker.ns = 'row_points'
+        rows_marker.id = 0
+        rows_marker.action = Marker.DELETE
+
+        center_marker = Marker()
+        center_marker.header.frame_id = self.target_frame
+        center_marker.header.stamp = now
+        center_marker.ns = 'centerline'
+        center_marker.id = 0
+        center_marker.action = Marker.DELETE
+
+        self.rows_pub.publish(rows_marker)
+        self.center_pub.publish(center_marker)
+
+    def publish_invalid(self, reason: str) -> None:
+        self.get_logger().warn(reason)
+        self.prev_center_pts = []
+        self.publish_valid(False)
+        self.publish_empty_path()
+        self.clear_markers()
+
     def cb(self, msg: PointCloud2) -> None:
         if msg.header.frame_id != self.target_frame:
-            self.get_logger().warn(
+            self.publish_invalid(
                 f'Expected frame {self.target_frame}, got {msg.header.frame_id}'
             )
             return
@@ -121,7 +159,7 @@ class CenterlineNode(Node):
         self.get_logger().info(f'roi_pts={len(pts)}')
 
         if len(pts) < 50:
-            self.get_logger().warn('Not enough ROI points')
+            self.publish_invalid('Not enough ROI points')
             return
 
         pts_np = np.array(pts, dtype=np.float64)
@@ -134,7 +172,7 @@ class CenterlineNode(Node):
         x_max = float(np.max(xs))
 
         if abs(x_max - x_min) < 1e-6:
-            self.get_logger().warn('Forward span too small')
+            self.publish_invalid('Forward span too small')
             return
 
         x_step = (x_max - x_min) / self.slice_count
@@ -181,7 +219,7 @@ class CenterlineNode(Node):
         )
 
         if len(center_pts) < 3:
-            self.get_logger().warn('Not enough centerline points')
+            self.publish_invalid('Not enough centerline points')
             return
 
         center_pts.sort(key=lambda p: p[0])
@@ -194,6 +232,7 @@ class CenterlineNode(Node):
 
         center_pts = self.temporal_smooth(center_pts)
 
+        self.publish_valid(True)
         self.publish_rows(left_row_pts, right_row_pts)
         self.publish_centerline(center_pts)
         self.publish_path(center_pts)

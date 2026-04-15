@@ -90,7 +90,7 @@ class MotorControlNode(Node):
 
     def _connect_can(self):
         try:
-            self.bus = can.interface.Bus(channel=CAN_INTERFACE, bustype='socketcan')
+            self.bus = can.interface.Bus(channel='/dev/ttyACM0', interface='slcan', bitrate=500000)
             self.can_available = True
             self.get_logger().info(f'CAN bus connected: {CAN_INTERFACE}')
         except Exception as e:
