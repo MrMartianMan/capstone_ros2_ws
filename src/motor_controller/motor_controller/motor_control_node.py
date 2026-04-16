@@ -28,9 +28,8 @@ START_RPM          = 900
 MAX_RPM            = 4500
 MAX_STEER_RPM      = 900
 RAMP_UP_DURATION   = 2.0
-RAMP_DOWN_DURATION = 1.0
+RAMP_DOWN_DURATION = 3.0
 RAMP_RATE          = 100
-CAN_INTERFACE      = 'can0'
 VESC_SET_RPM       = 3
 
 FL_DRIVE = 76
@@ -42,6 +41,9 @@ FL_STEER = 97
 FR_STEER = 21
 RL_STEER = 59
 RR_STEER = 37
+
+DRIVE_MOTORS = [FL_DRIVE, FR_DRIVE, RL_DRIVE, RR_DRIVE]
+STEER_MOTORS = [FL_STEER, FR_STEER, RL_STEER, RR_STEER]
 # ============================================
 
 
@@ -79,9 +81,19 @@ class MotorControlNode(Node):
             RL_STEER: 0.0,
             RR_STEER: 0.0
         }
+        self.steer_targets = {
+            FL_STEER: 0.0,
+            FR_STEER: 0.0,
+            RL_STEER: 0.0,
+            RR_STEER: 0.0
+        }
+
+        # Round robin index — cycles through all 8 motors one per loop
+        self.motor_index = 0
+        self.all_motors = DRIVE_MOTORS + STEER_MOTORS  # 8 total
 
         self.last_cmd_time = self.get_clock().now()
-        self.create_timer(0.02, self.control_loop)
+        self.create_timer(0.01, self.control_loop)  # 100Hz loop, each motor gets ~12.5Hz
         self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_callback, 10)
 
         self.get_logger().info("Motor Control Node Started")
@@ -90,9 +102,13 @@ class MotorControlNode(Node):
 
     def _connect_can(self):
         try:
-            self.bus = can.interface.Bus(channel='/dev/ttyACM0', interface='slcan', bitrate=500000)
+            self.bus = can.interface.Bus(
+                channel='/dev/ttyACM0',
+                interface='slcan',
+                bitrate=500000
+            )
             self.can_available = True
-            self.get_logger().info(f'CAN bus connected: {CAN_INTERFACE}')
+            self.get_logger().info('CAN bus connected: /dev/ttyACM0')
         except Exception as e:
             self.get_logger().warn(f'CAN not connected: {e}')
             self.can_available = False
@@ -142,16 +158,12 @@ class MotorControlNode(Node):
         linear  = msg.linear.x
         angular = msg.linear.y
 
-        # Check each direction
         forward  = linear  >  0.5
         backward = linear  < -0.5
         left     = angular >  0.5
         right    = angular < -0.5
 
-        # Count active inputs — includes diagonal combos
-        active = sum([forward, backward, left, right])
-
-        # Also check for any non-zero linear.x AND non-zero linear.y simultaneously
+        active    = sum([forward, backward, left, right])
         both_axes = (abs(linear) > 0.5) and (abs(angular) > 0.5)
 
         if active > 1 or both_axes:
@@ -175,22 +187,11 @@ class MotorControlNode(Node):
                 self.start_ramp_down()
             self.drive_mode = new_mode
 
-        # ── STEER MOTORS ──────────────────────────────────────────
-        steer_cmds = {
-            FL_STEER: msg.angular.x,
-            FR_STEER: msg.angular.y,
-            RL_STEER: msg.angular.z,
-            RR_STEER: msg.linear.z
-        }
-
-        for steer_id, val in steer_cmds.items():
-            target = MAX_STEER_RPM if val > 0 else (-MAX_STEER_RPM if val < 0 else 0.0)
-            current = self.current_steer_rpm[steer_id]
-            if current < target:
-                self.current_steer_rpm[steer_id] = target if current == 0 and target > 0 else min(current + RAMP_RATE, target)
-            elif current > target:
-                self.current_steer_rpm[steer_id] = target if current == 0 and target < 0 else max(current - RAMP_RATE, target)
-            self.vesc_set_rpm(steer_id, self.current_steer_rpm[steer_id], MAX_STEER_RPM)
+        # Store steer targets
+        self.steer_targets[FL_STEER] = msg.angular.x
+        self.steer_targets[FR_STEER] = msg.angular.y
+        self.steer_targets[RL_STEER] = msg.angular.z
+        self.steer_targets[RR_STEER] = msg.linear.z
 
     def control_loop(self):
         # Watchdog
@@ -202,14 +203,13 @@ class MotorControlNode(Node):
 
         base_rpm = self.get_current_rpm()
 
-        # Check if ramp down fully complete
         if self.ramping_down and self.ramp_start_time is not None:
             elapsed = time.time() - self.ramp_start_time
             if elapsed >= RAMP_DOWN_DURATION:
                 base_rpm = 0.0
                 self.ramp_start_time = None
 
-        # Determine left/right RPM based on mode
+        # Calculate drive RPMs
         if self.drive_mode == 'forward':
             left_rpm  =  base_rpm
             right_rpm =  base_rpm
@@ -223,7 +223,6 @@ class MotorControlNode(Node):
             left_rpm  =  base_rpm
             right_rpm = -base_rpm
         else:
-            # Stop mode — ramp down in previous direction
             if self.prev_drive_mode == 'forward':
                 left_rpm  =  base_rpm
                 right_rpm =  base_rpm
@@ -243,25 +242,38 @@ class MotorControlNode(Node):
         self.current_left_rpm  = left_rpm
         self.current_right_rpm = right_rpm
 
-        self.vesc_set_rpm(FL_DRIVE, left_rpm)
-        self.vesc_set_rpm(FR_DRIVE, right_rpm)
-        self.vesc_set_rpm(RL_DRIVE, left_rpm)
-        self.vesc_set_rpm(RR_DRIVE, right_rpm)
+        # Update steer current RPMs
+        for steer_id, val in self.steer_targets.items():
+            target = MAX_STEER_RPM if val > 0 else (-MAX_STEER_RPM if val < 0 else 0.0)
+            current = self.current_steer_rpm[steer_id]
+            if current < target:
+                self.current_steer_rpm[steer_id] = target if current == 0 and target > 0 else min(current + RAMP_RATE, target)
+            elif current > target:
+                self.current_steer_rpm[steer_id] = target if current == 0 and target < 0 else max(current - RAMP_RATE, target)
+
+        # ── Round robin — send ONE motor per loop ─────────────────
+        motor_id = self.all_motors[self.motor_index]
+        self.motor_index = (self.motor_index + 1) % len(self.all_motors)
+
+        if motor_id in DRIVE_MOTORS:
+            if motor_id in [FL_DRIVE, RL_DRIVE]:
+                self.vesc_set_rpm(motor_id, left_rpm)
+            else:
+                self.vesc_set_rpm(motor_id, right_rpm)
+        else:
+            self.vesc_set_rpm(motor_id, self.current_steer_rpm[motor_id], MAX_STEER_RPM)
 
         self.get_logger().info(
             f'Mode: {self.drive_mode} | ERPM: {base_rpm:.0f} | '
             f'Drive L: {left_rpm:.0f} R: {right_rpm:.0f} | '
-            f'Steer FL: {self.current_steer_rpm[FL_STEER]:.0f} '
-            f'FR: {self.current_steer_rpm[FR_STEER]:.0f} '
-            f'RL: {self.current_steer_rpm[RL_STEER]:.0f} '
-            f'RR: {self.current_steer_rpm[RR_STEER]:.0f}'
+            f'Motor idx: {self.motor_index}'
         )
 
     def destroy_node(self):
         self.get_logger().info('Shutting down — stopping all motors.')
-        for drive_id in [FL_DRIVE, FR_DRIVE, RL_DRIVE, RR_DRIVE]:
+        for drive_id in DRIVE_MOTORS:
             self.vesc_set_rpm(drive_id, 0)
-        for steer_id in [FL_STEER, FR_STEER, RL_STEER, RR_STEER]:
+        for steer_id in STEER_MOTORS:
             self.vesc_set_rpm(steer_id, 0, MAX_STEER_RPM)
         if self.bus:
             self.bus.shutdown()

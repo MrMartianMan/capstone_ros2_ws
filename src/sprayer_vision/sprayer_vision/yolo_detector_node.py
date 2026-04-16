@@ -38,7 +38,7 @@ class YoloDetectorNode(Node):
     def __init__(self):
         super().__init__('yolo_detector_node')
 
-        self.declare_parameter('model_path', '/home/project-48/models/yolo/yolo11s.engine')
+        self.declare_parameter('model_path', '/home/project-48/models/yolo/yolo11s_640.engine')
         self.declare_parameter('image_topic', '/image_raw')
         self.declare_parameter('annotated_image_topic', '/detections/image')
         self.declare_parameter('conf_threshold', 0.50)
