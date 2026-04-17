@@ -3,7 +3,7 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    VISION_MODE = 'pretrained'   # 'random', 'pretrained', or 'cercospora'
+    VISION_MODE = 'random'   # 'random', 'pretrained', or 'cercospora'
     USE_CROP = True              # True or False
     ROW_LAYOUT = 'single_row'    # 'single_row' or 'double_row'
 
@@ -17,7 +17,7 @@ def generate_launch_description():
                 name='v4l2_camera',
                 output='screen',
                 parameters=[{
-                    'video_device': '/dev/video0',
+                    'video_device': '/dev/video2',
                     'pixel_format': 'YUYV',
                     'output_encoding': 'bgr8',
                     'image_size': [3840, 2160],
@@ -35,9 +35,9 @@ def generate_launch_description():
                     parameters=[{
                         'image_topic': '/image_raw',
                         'cropped_image_topic': '/image_crop_between_legs',
-                        'mount_height_in': 72.0,
-                        'desired_ground_width_in': 80.0,
-                        'hfov_deg': 88.0,
+                        'mount_height_in': 59.25,
+                        'desired_ground_width_in': 59.5,
+                        'hfov_deg': 80.0,
                         'crop_center_x_offset_px': 0,
                         'crop_margin_px': 0,
                         'full_height': True,

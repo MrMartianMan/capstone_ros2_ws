@@ -17,7 +17,7 @@ class JoyEvdevNode(Node):
     def __init__(self):
         super().__init__('joy_evdev_node')
 
-        self.declare_parameter('device', '/dev/input/event0')
+        self.declare_parameter('device', '/dev/input/by-id/usb-8BitDo_8BitDo_Ultimate_2C_Wireless_Controller_562252A6BD-event-joystick')
         device_path = self.get_parameter('device').value
 
         self.publisher = self.create_publisher(Joy, '/joy', 10)
