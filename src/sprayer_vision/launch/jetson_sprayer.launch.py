@@ -3,9 +3,9 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    VISION_MODE = 'random'   # 'random', 'pretrained', or 'cercospora'
+    VISION_MODE = 'pretrained'   # 'random', 'pretrained', or 'cercospora'
     USE_CROP = True              # True or False
-    ROW_LAYOUT = 'single_row'    # 'single_row' or 'double_row'
+    ROW_LAYOUT = 'double_row'    # 'single_row' or 'double_row'
 
     nodes = []
 
@@ -17,10 +17,9 @@ def generate_launch_description():
                 name='v4l2_camera',
                 output='screen',
                 parameters=[{
-                    'video_device': '/dev/video2',
-                    'pixel_format': 'YUYV',
-                    'output_encoding': 'bgr8',
+                    'video_device': '/dev/v4l/by-id/usb-Arducam_Arducam_B0497__USB3_8.3MP_-video-index0',
                     'image_size': [3840, 2160],
+		    'pixel_format': 'YUYV',
                 }]
             )
         )
