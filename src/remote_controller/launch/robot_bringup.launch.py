@@ -21,7 +21,7 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'start_button_index': 9,
-                'hold_seconds': 2.0,
+                'hold_seconds': 1.0,
                 'workspace_path': '/home/project-48/capstone_ros2_ws'
             }]
         ),
