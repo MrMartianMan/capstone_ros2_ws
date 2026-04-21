@@ -37,30 +37,46 @@ class RemoteControllerNode(Node):
     def joy_callback(self, msg):
         cmd = Twist()
 
+        # Drive / spin commands
         cmd.linear.x = msg.axes[LINEAR_AXIS]
         cmd.linear.y = msg.axes[STEER_AXIS]
 
         lb = msg.buttons[BTN_LB]
         rb = msg.buttons[BTN_RB]
 
+        # Toggle between default and individual steer modes
         if lb and not self.lb_prev:
             self.individual_mode = not self.individual_mode
-            self.get_logger().info(f"Mode: {'INDIVIDUAL' if self.individual_mode else 'DEFAULT'}")
+            self.get_logger().info(
+                f"Mode: {'INDIVIDUAL' if self.individual_mode else 'DEFAULT'}"
+            )
 
+        # Flip steer direction for individual mode
         if rb and not self.rb_prev:
             self.steer_direction = -self.steer_direction
-            self.get_logger().info(f"Steer: {'FWD' if self.steer_direction > 0 else 'BWD'}")
+            self.get_logger().info(
+                f"Steer: {'FWD' if self.steer_direction > 0 else 'BWD'}"
+            )
 
         self.lb_prev = lb
         self.rb_prev = rb
 
+        # ================= STEER LOGIC =================
         if self.individual_mode:
-            cmd.angular.x = self.steer_direction if msg.buttons[BTN_A] else 0.0
-            cmd.angular.y = self.steer_direction if msg.buttons[BTN_B] else 0.0
-            cmd.angular.z = self.steer_direction if msg.buttons[BTN_X] else 0.0
-            cmd.linear.z  = self.steer_direction if msg.buttons[BTN_Y] else 0.0
+            # Individual wheel steer
+            cmd.angular.x = self.steer_direction if msg.buttons[BTN_A] else 0.0  # FL
+            cmd.angular.y = self.steer_direction if msg.buttons[BTN_B] else 0.0  # FR
+            cmd.angular.z = self.steer_direction if msg.buttons[BTN_X] else 0.0  # RL
+            cmd.linear.z  = self.steer_direction if msg.buttons[BTN_Y] else 0.0  # RR
         else:
-            if msg.buttons[BTN_X]:
+            # All 4 steer together
+            # X only  -> +1
+            # B only  -> -1
+            # X + B   -> 0
+            # none    -> 0
+            if msg.buttons[BTN_X] and msg.buttons[BTN_B]:
+                steer_val = 0.0
+            elif msg.buttons[BTN_X]:
                 steer_val = 1.0
             elif msg.buttons[BTN_B]:
                 steer_val = -1.0
@@ -71,6 +87,7 @@ class RemoteControllerNode(Node):
             cmd.angular.y = steer_val
             cmd.angular.z = steer_val
             cmd.linear.z  = steer_val
+        # ===============================================
 
         self.last_cmd = cmd
 
@@ -84,6 +101,7 @@ def main():
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()

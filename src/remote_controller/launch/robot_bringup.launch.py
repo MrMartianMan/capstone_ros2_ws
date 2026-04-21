@@ -10,7 +10,7 @@ def generate_launch_description():
             name='joy_evdev_node',
             output='screen',
             parameters=[{
-                'device': '/dev/input/by-id/usb-8BitDo_8BitDo_Ultimate_2C_Wireless_Controller_562252A6BD-event-joystick'
+                'device': '/dev/input/by-id/usb-Guangzhou_Chicken_Run_Network_Technology_Co.__Ltd._GameSir-G7_Pro-event-joystick'
             }]
         ),
 
