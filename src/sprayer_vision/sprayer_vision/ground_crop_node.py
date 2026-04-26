@@ -40,8 +40,8 @@ class GroundCropNode(Node):
         self.declare_parameter('cropped_image_topic', '/image_crop_between_legs')
 
         # Geometry-based crop parameters
-        self.declare_parameter('mount_height_in', 85.25)
-        self.declare_parameter('desired_ground_width_in', 73.0)
+        self.declare_parameter('mount_height_in', 68.5)
+        self.declare_parameter('desired_ground_width_in', 56.0)
         self.declare_parameter('hfov_deg', 88.0)
 
         # Manual tuning
